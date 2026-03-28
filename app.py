@@ -114,7 +114,7 @@ elif choice == "Financial Insights":
     st.subheader("💰 Sales & Revenue Report")
     if not df.empty:
         total_rev = df["Total Sales Value"].sum()
-        st.metric("Total Estimated Revenue", f"${total_rev:,.2f}")
+        st.metric("Total Estimated Revenue", f"UGX{total_rev:,.2f}")
         st.table(df[["Item Name", "Stock Sold Out",
                  "Total Sales Value", "Updated By"]])
     else:
