@@ -12,21 +12,40 @@ EMAILJS_SERVICE_ID = "service_4nf5h0s"
 EMAILJS_TEMPLATE_ID = "template_hxqoaek"
 EMAILJS_PUBLIC_KEY = "Lb8MwfQXoUKQmNGGh"
 
-st.set_page_config(page_title="EE Agro-Chemicals",
-                   page_icon="🌱", layout="wide")
+st.set_page_config(page_title="EE Agro-Chemicals", page_icon="🌱", layout="wide")
 
-# --- 2. THEME & EMAIL SCRIPT ---
+# --- 2. CLEAN READABILITY THEME ---
 st.markdown(f"""
     <style>
+    /* Clean light gray background */
     .stApp {{
-        background: url("https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&q=80&w=2000");
-        background-size: cover; background-attachment: fixed;
+        background-color: #f8f9fa;
     }}
+    /* White cards with dark text for high contrast */
     .main .block-container {{
-        background-color: rgba(255, 255, 255, 0.95);
-        padding: 2rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        background-color: #ffffff;
+        padding: 2rem; 
+        border-radius: 8px; 
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-top: 20px;
+        color: #1a1a1a;
     }}
-    .stButton>button {{ width: 100%; border-radius: 10px; font-weight: bold; }}
+    /* Dark Green Headers */
+    h1, h2, h3 {{
+        color: #053e08 !important;
+        font-weight: 700 !important;
+    }}
+    /* Make metrics stand out */
+    [data-testid="stMetricValue"] {{
+        font-size: 1.8rem !important;
+        color: #2e7d32 !important;
+    }}
+    /* Style buttons for clarity */
+    .stButton>button {{
+        border-radius: 4px;
+        height: 3em;
+        width: 100%;
+    }}
     </style>
     
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
@@ -41,105 +60,104 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- 3. DATABASE FUNCTIONS ---
-
-
 def fetch_data():
     try:
         response = supabase.table("inventory").select("*").execute()
         df = pd.DataFrame(response.data)
         if not df.empty:
-            # Simple Logic: Sold = Total Input - What is left
             df["Stock Sold Out"] = df["Total Stock Input"] - df["Stock Remaining"]
             df["Total Sales Value"] = df["Stock Sold Out"] * df["Price per Unit"]
         return df
     except:
         return pd.DataFrame()
 
-
 def update_db(name, input_qty, remain_qty, price, user):
-    data = {"Item Name": name, "Total Stock Input": input_qty,
+    data = {"Item Name": name, "Total Stock Input": input_qty, 
             "Stock Remaining": remain_qty, "Price per Unit": price, "Updated By": user}
     supabase.table("inventory").upsert(data, on_conflict="Item Name").execute()
 
-
 # --- 4. NAVIGATION ---
-st.sidebar.title("🌿 EE AGRO")
+st.sidebar.header("EE AGRO-CHEMICALS")
 user_name = st.sidebar.text_input("Seller Name:", "Staff")
-menu = ["🛒 Sell & Manage Stock", "➕ Add New Product", "📈 Sales Reports"]
-choice = st.sidebar.selectbox("Menu", menu)
+menu = ["🛒 Record Sales", "📦 Inventory & Restock", "➕ Add New Product", "📈 Sales Report"]
+choice = st.sidebar.selectbox("Go to:", menu)
 df = fetch_data()
 
-# --- 5. PAGE LOGIC ---
+# --- 5. PAGES ---
 
-if choice == "🛒 Sell & Manage Stock":
-    st.title("Current Shop Inventory")
-
+if choice == "🛒 Record Sales":
+    st.title("Daily Sales Counter")
     if not df.empty:
-        # Check for Low Stock
-        low_items = df[df["Stock Remaining"] < 5]
-        if not low_items.empty:
-            st.warning(
-                f"📢 Need to restock: {', '.join(low_items['Item Name'].tolist())}")
-            if st.button("📧 Send Low Stock Alert to Manager"):
-                msg = f"Stock is low for: {', '.join(low_items['Item Name'].tolist())}"
-                st.components.v1.html(
-                    f"<script>sendEmail('{msg}')</script>", height=0)
+        # Search Bar
+        search = st.text_input("🔍 Search product name...", "")
+        filtered_df = df[df["Item Name"].str.contains(search, case=False)]
 
-        # Show items in a simple list
-        for index, row in df.iterrows():
-            with st.container():
-                col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
-
-                with col1:
-                    st.write(f"### {row['Item Name']}")
-                    st.caption(f"Price: UGX {row['Price per Unit']:,.0f}")
-
-                with col2:
-                    st.write(f"**Stock Left: {row['Stock Remaining']}**")
-
-                with col3:
-                    # THE SIMPLIFIED PART: Just enter how many were sold
-                    sold_now = st.number_input("Amount Sold", min_value=0, max_value=int(
-                        row['Stock Remaining']), key=f"s_{index}")
-
-                with col4:
-                    if st.button("Confirm Sale ✅", key=f"btn_{index}"):
-                        if sold_now > 0:
-                            new_rem = row['Stock Remaining'] - sold_now
-                            update_db(row['Item Name'], row['Total Stock Input'],
-                                      new_rem, row['Price per Unit'], user_name)
-                            st.success(f"Sold {sold_now}!")
-                            st.rerun()
+        for index, row in filtered_df.iterrows():
+            if row['Stock Remaining'] > 0:
+                with st.container():
+                    col1, col2, col3 = st.columns([3, 2, 2])
+                    with col1:
+                        st.subheader(row['Item Name'])
+                        st.write(f"Price: **UGX {row['Price per Unit']:,.0f}**")
+                    with col2:
+                        st.metric("Units Available", int(row['Stock Remaining']))
+                    with col3:
+                        qty_sold = st.number_input("Amount Sold", min_value=0, max_value=int(row['Stock Remaining']), key=f"sell_{index}")
+                        if st.button("Confirm Sale ✅", key=f"btn_{index}"):
+                            if qty_sold > 0:
+                                new_rem = row['Stock Remaining'] - qty_sold
+                                update_db(row['Item Name'], row['Total Stock Input'], new_rem, row['Price per Unit'], user_name)
+                                st.success(f"Sold {qty_sold} units!")
+                                st.rerun()
                 st.divider()
+    else:
+        st.info("No items in stock. Please add products first.")
 
-                # Hidden Delete Option
-                if st.checkbox(f"Delete {row['Item Name']}?", key=f"del_chk_{index}"):
-                    if st.button("Confirm Delete 🗑️", key=f"del_btn_{index}"):
-                        supabase.table("inventory").delete().eq(
-                            "Item Name", row['Item Name']).execute()
+elif choice == "📦 Inventory & Restock":
+    st.title("Stock Management")
+    if not df.empty:
+        # Low Stock Alert
+        low = df[df["Stock Remaining"] < 5]
+        if not low.empty:
+            st.error(f"⚠️ Warning: {', '.join(low['Item Name'].tolist())} are running low!")
+            if st.button("📧 Email Manager for Stock"):
+                msg = f"Restock needed for: {', '.join(low['Item Name'].tolist())}"
+                st.components.v1.html(f"<script>sendEmail('{msg}')</script>", height=0)
+
+        for index, row in df.iterrows():
+            with st.expander(f"⚙️ Manage {row['Item Name']}"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.write(f"**Current Total Stock:** {row['Total Stock Input']}")
+                    st.write(f"**Currently on Shelf:** {row['Stock Remaining']}")
+                    add_stock = st.number_input("Add New Shipment Qty", min_value=0, key=f"add_{index}")
+                    new_p = st.number_input("Update Price", value=float(row['Price per Unit']), key=f"p_{index}")
+                    if st.button("Update Stock 🔄", key=f"up_{index}"):
+                        new_input = row['Total Stock Input'] + add_stock
+                        new_rem = row['Stock Remaining'] + add_stock
+                        update_db(row['Item Name'], new_input, new_rem, new_p, user_name)
+                        st.success("Inventory updated!")
+                        st.rerun()
+                with c2:
+                    st.write("---")
+                    if st.button("🗑️ Delete Product Forever", key=f"del_{index}"):
+                        supabase.table("inventory").delete().eq("Item Name", row['Item Name']).execute()
                         st.rerun()
 
 elif choice == "➕ Add New Product":
-    st.title("Register New Product")
-    with st.form("add_form"):
-        name = st.text_input("Chemical Name")
-        qty = st.number_input("Initial Stock Quantity", min_value=1)
-        price = st.number_input("Price per Unit (UGX)", min_value=0)
-        if st.form_submit_button("Add to System"):
-            update_db(name, qty, qty, price, user_name)
+    st.title("Add New Chemical")
+    with st.form("new_prod"):
+        name = st.text_input("Product Name")
+        q = st.number_input("Initial Quantity", min_value=1)
+        p = st.number_input("Price (UGX)", min_value=0)
+        if st.form_submit_button("Save Product"):
+            update_db(name, q, q, p, user_name)
             st.success(f"{name} added to inventory!")
 
-elif choice == "📈 Sales Reports":
-    st.title("Financial Overview")
+elif choice == "📈 Sales Report":
+    st.title("Shop Financials")
     if not df.empty:
-        total_rev = df['Total Sales Value'].sum()
-        st.metric("Total Revenue Collected", f"UGX {total_rev:,.0f}")
-
-        # Simple table for the user
-        report_df = df[["Item Name", "Stock Sold Out",
-                        "Stock Remaining", "Total Sales Value"]]
-        report_df.columns = ["Product", "Units Sold",
-                             "In Stock", "Revenue (UGX)"]
-        st.table(report_df)
-    else:
-        st.info("No sales data yet.")
+        st.metric("Total Revenue Collected", f"UGX {df['Total Sales Value'].sum():,.0f}")
+        display_df = df[["Item Name", "Stock Sold Out", "Stock Remaining", "Total Sales Value"]]
+        display_df.columns = ["Product Name", "Units Sold", "In Stock", "Revenue (UGX)"]
+        st.table(display_df)
