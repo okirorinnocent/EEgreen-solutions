@@ -2,120 +2,121 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 
-# --- 1. DATABASE CONNECTION ---
-# Replace these with your actual Supabase keys if they change
+# --- 1. CONFIG & CONNECTIONS ---
 URL = "https://dcpvdapxzkaahyhpflul.supabase.co"
 KEY = "sb_publishable_SiQMwIgDgLmckNQHUmO3SA_78UQBLHf"
 supabase = create_client(URL, KEY)
 
-# --- 2. THE AGRO-THEME (Visuals & Icon) ---
-# Direct link to the Muddo Agro-Chemicals logo
-LOGO_URL = "https://www.kcca.go.ug/media/kabd/listings/1614152862.JPG"
+# --- EMAILJS CONFIG (REPLACE THESE WITH YOUR ACTUAL KEYS) ---
+EMAILJS_SERVICE_ID = "service_4nf5h0s"
+EMAILJS_TEMPLATE_ID = "template_hxqoaek"
+EMAILJS_PUBLIC_KEY = "Lb8MwfQXoUKQmNGGh"
 
-st.set_page_config(
-    page_title="EE Agro-Chemicals",
-    page_icon=LOGO_URL,
-    layout="wide"
-)
+st.set_page_config(page_title="EE Agro-Chemicals",
+                   page_icon="🌱", layout="wide")
 
-# Custom CSS for the appealing nature background
+# --- 2. CUSTOM CSS & BACKGROUND ---
 st.markdown(f"""
     <style>
     .stApp {{
-        background: linear-gradient(to bottom, #f0f7f4, #ffffff);
+        background: url("https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&q=80&w=2000");
+        background-size: cover;
+        background-attachment: fixed;
     }}
-    h1, h2, h3 {{
-        color: #1b5e20;
-    }}
-    .stButton>button {{
-        background-color: #2e7d32;
-        color: white;
-        border-radius: 8px;
+    .main .block-container {{
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 2rem; border-radius: 15px; margin-top: 20px;
     }}
     </style>
+    
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script type="text/javascript">
+        (function() {{
+            emailjs.init("{EMAILJS_PUBLIC_KEY}");
+        }})();
+        
+        function sendEmail(message) {{
+            emailjs.send("{EMAILJS_SERVICE_ID}", "{EMAILJS_TEMPLATE_ID}", {{
+                message: message,
+                to_name: "Manager"
+            }}).then(function() {{
+                alert("Email Sent Successfully!");
+            }}, function(error) {{
+                alert("Failed to send email: " + JSON.stringify(error));
+            }});
+        }}
+    </script>
     """, unsafe_allow_html=True)
 
-st.title("🌱 EE GREEN SOLUTIONS: Agro-Chemical Manager")
-
-# --- 3. HELPER FUNCTIONS ---
+# --- 3. DATABASE FUNCTIONS ---
 
 
 def fetch_data():
-    """Gets data from Supabase and does the math"""
     try:
         response = supabase.table("inventory").select("*").execute()
         df = pd.DataFrame(response.data)
         if not df.empty:
-            # Calculate Sold and Value on the fly
             df["Stock Sold Out"] = df["Total Stock Input"] - df["Stock Remaining"]
             df["Total Sales Value"] = df["Stock Sold Out"] * df["Price per Unit"]
         return df
-    except Exception as e:
-        st.error(f"Error fetching data: {e}")
+    except:
         return pd.DataFrame()
 
 
 def update_stock(name, input_qty, remain_qty, price, user):
-    """Saves the data including the 'Updated By' column"""
-    data = {
-        "Item Name": name,
-        "Total Stock Input": input_qty,
-        "Stock Remaining": remain_qty,
-        "Price per Unit": price,
-        "Updated By": user
-    }
+    data = {"Item Name": name, "Total Stock Input": input_qty,
+            "Stock Remaining": remain_qty, "Price per Unit": price, "Updated By": user}
     supabase.table("inventory").upsert(data, on_conflict="Item Name").execute()
 
 
-# --- 4. NAVIGATION ---
-st.sidebar.image(LOGO_URL, width=150)
-user_name = st.sidebar.text_input("Logged in as:", "Staff Member")
-menu = ["Inventory Overview", "Log Sales & Stock", "Financial Insights"]
-choice = st.sidebar.selectbox("Menu", menu)
+def delete_item(name):
+    supabase.table("inventory").delete().eq("Item Name", name).execute()
+    st.rerun()
 
+
+# --- 4. APP LOGIC ---
+user_name = st.sidebar.text_input("👤 User:", "Staff Member")
+menu = ["📈 Dashboard & Edit", "➕ Add New Item", "💰 Financials"]
+choice = st.sidebar.selectbox("Menu", menu)
 df = fetch_data()
 
-# --- 5. PAGES ---
+if choice == "📈 Dashboard & Edit":
+    st.title("📦 Inventory Management")
 
-if choice == "Inventory Overview":
-    st.subheader("📦 Shop Shelf Status")
     if not df.empty:
-        # Added 'Updated By' to the display table
-        cols = ["Item Name", "Total Stock Input", "Stock Remaining",
-                "Stock Sold Out", "Price per Unit", "Updated By"]
-        st.dataframe(df[cols], use_container_width=True)
-    else:
-        st.info("No items found. Go to 'Log Sales' to add your first product!")
+        low_stock_items = df[df["Stock Remaining"] < 5]
+        if not low_stock_items.empty:
+            item_list = ", ".join(low_stock_items["Item Name"].tolist())
+            st.error(f"⚠️ LOW STOCK: {item_list}")
 
-elif choice == "Log Sales & Stock":
-    st.subheader(f"Update Stock - Done by: {user_name}")
-    with st.form("agro_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("Product Name")
-            input_qty = st.number_input("Total Stock Input", min_value=0)
-        with col2:
-            price = st.number_input("Price per Unit ($)", min_value=0.0)
-            remain_qty = st.number_input(
-                "Current Stock Remaining", min_value=0)
+            # This button triggers the Javascript Email Function
+            email_msg = f"Alert! The following items are low in stock: {item_list}. Please restock immediately."
+            if st.button("📧 Send Real Email to Manager"):
+                st.components.v1.html(
+                    f"<script>sendEmail('{email_msg}')</script>", height=0)
+                st.success("Email request triggered!")
 
-        submit = st.form_submit_button("Save Changes")
+        for index, row in df.iterrows():
+            with st.expander(f"🛠️ {row['Item Name']} (Stock: {row['Stock Remaining']})"):
+                c1, c2, c3 = st.columns([2, 1, 1])
+                new_rem = c1.number_input("New Stock", value=int(
+                    row['Stock Remaining']), key=f"r_{index}")
+                if c2.button("Save ✅", key=f"s_{index}"):
+                    update_stock(row['Item Name'], row['Total Stock Input'],
+                                 new_rem, row['Price per Unit'], user_name)
+                    st.rerun()
+                if c3.button("Delete 🗑️", key=f"d_{index}"):
+                    delete_item(row['Item Name'])
 
-        if submit:
-            if name and (remain_qty <= input_qty):
-                update_stock(name, input_qty, remain_qty, price, user_name)
-                st.success(f"Successfully updated {name}!")
-                st.rerun()
-            else:
-                st.error(
-                    "Check your inputs! Name is required and remaining stock can't exceed input.")
+elif choice == "➕ Add New Item":
+    with st.form("add"):
+        name = st.text_input("Product Name")
+        qty = st.number_input("Stock Input", min_value=1)
+        pr = st.number_input("Price (UGX)", min_value=0)
+        if st.form_submit_button("Add Item") and name:
+            update_stock(name, qty, qty, pr, user_name)
+            st.success("Added!")
 
-elif choice == "Financial Insights":
-    st.subheader("💰 Sales & Revenue Report")
-    if not df.empty:
-        total_rev = df["Total Sales Value"].sum()
-        st.metric("Total Estimated Revenue", f"UGX{total_rev:,.2f}")
-        st.table(df[["Item Name", "Stock Sold Out",
-                 "Total Sales Value", "Updated By"]])
-    else:
-        st.error("No data available.")
+elif choice == "💰 Financials":
+    st.metric("Total Revenue", f"UGX {df['Total Sales Value'].sum():,.0f}")
+    st.bar_chart(df.set_index("Item Name")["Total Sales Value"])
