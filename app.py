@@ -1,86 +1,130 @@
 import streamlit as st
 from supabase import create_client
 import pandas as pd
-import plotly.express as px
 
 # --- 1. DATABASE CONNECTION ---
-# Fill these in with your actual Supabase credentials
+# Paste your actual credentials here
 URL = "https://dcpvdapxzkaahyhpflul.supabase.co"
 KEY = "sb_publishable_SiQMwIgDgLmckNQHUmO3SA_78UQBLHf"
 supabase = create_client(URL, KEY)
 
-st.set_page_config(page_title="EE GREEN SOLUTIONS", layout="wide")
-st.title("🌿 EE GREEN SOLUTIONS: Cloud Stock Manager")
+# --- 2. THE AGRO-THEME (Visuals) ---
+st.set_page_config(page_title="EE Agro-Chemicals", layout="wide")
 
-# --- 2. THE USER ---
-user_name = st.sidebar.text_input("Enter Your Name (Staff/Owner)", "Admin")
+# Custom CSS to make it look like a Nature/Agro Shop
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #f0f7f4; /* Light Mint Green Background */
+    }
+    h1, h2, h3 {
+        color: #1b5e20; /* Dark Forest Green Text */
+    }
+    .stButton>button {
+        background-color: #2e7d32;
+        color: white;
+        border-radius: 8px;
+        border: none;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🌱 EE GREEN SOLUTIONS: Agro-Chemical Manager")
 
 # --- 3. HELPER FUNCTIONS ---
 
 
 def fetch_data():
-    """Gets all stock from the cloud"""
+    """Gets data and calculates 'Sold' and 'Value' inside the app"""
     try:
         response = supabase.table("inventory").select("*").execute()
-        return pd.DataFrame(response.data)
-    except Exception as e:
-        return pd.DataFrame()  # Returns empty if table isn't ready yet
+        df = pd.DataFrame(response.data)
+        if not df.empty:
+            # THE MATH LOGIC
+            # Stock Sold = Input - Remaining
+            df["Stock Sold Out"] = df["Total Stock Input"] - df["Stock Remaining"]
+            # Total Sales Value = Sold * Price
+            df["Total Sales Value"] = df["Stock Sold Out"] * df["Price per Unit"]
+        return df
+    except:
+        return pd.DataFrame()
 
 
-def update_stock(name, qty, price, user):
-    """Saves or Updates stock in the cloud using EXACT screen names"""
-    total = qty * price
-    # These labels MUST match the SQL table columns exactly (including spaces)
+def update_stock(name, input_qty, remain_qty, price, user):
+    """Saves the raw numbers to the cloud"""
     data = {
         "Item Name": name,
-        "Quantity in Stock": qty,
+        "Total Stock Input": input_qty,
+        "Stock Remaining": remain_qty,
         "Price per Unit": price,
-        "Total Value": total,
         "Updated By": user
     }
-    # We use "Item Name" as the conflict check so it updates existing items
     supabase.table("inventory").upsert(data, on_conflict="Item Name").execute()
 
 
-# --- 4. APP INTERFACE ---
-menu = ["View Stock", "Add/Update Item", "Business Insights"]
-choice = st.sidebar.selectbox("Navigation", menu)
+# --- 4. NAVIGATION ---
+user_name = st.sidebar.text_input("Staff Name", "Admin")
+menu = ["Inventory Overview", "Log Sales & Stock", "Financial Insights"]
+choice = st.sidebar.selectbox("Menu", menu)
 
-# Load current data
 df = fetch_data()
 
-if choice == "View Stock":
-    st.subheader("Live Inventory (Cloud Sync)")
-    if not df.empty:
-        st.dataframe(df)
-    else:
-        st.info("No stock found. Go to 'Add/Update Item' to begin.")
+# --- 5. PAGES ---
 
-elif choice == "Add/Update Item":
-    st.subheader(f"Editing as: {user_name}")
-    with st.form("edit_form"):
-        name = st.text_input("Item Name (e.g., Solar Panel)")
-        qty = st.number_input("Quantity in Stock", min_value=0, step=1)
-        price = st.number_input("Price per Unit", min_value=0.0)
-        submit = st.form_submit_button("Push to Cloud")
+if choice == "Inventory Overview":
+    st.subheader("📦 Shop Shelf Status")
+    if not df.empty:
+        # Displaying the calculated columns nicely
+        cols = ["Item Name", "Total Stock Input",
+                "Stock Remaining", "Stock Sold Out", "Price per Unit"]
+        st.dataframe(df[cols], use_container_width=True)
+    else:
+        st.info("No items in inventory. Please add stock in the next tab.")
+
+elif choice == "Log Sales & Stock":
+    st.subheader(f"Update Stock Levels - Logger: {user_name}")
+    with st.form("agro_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            name = st.text_input("Product Name (e.g., NPK Fertilizer)")
+            input_qty = st.number_input(
+                "Total Stock Input (Bulk Buy)", min_value=0)
+        with col2:
+            price = st.number_input("Price per Unit ($)", min_value=0.0)
+            remain_qty = st.number_input(
+                "Current Stock Remaining", min_value=0)
+
+        submit = st.form_submit_button("Save to Cloud")
 
         if submit:
-            if name:
-                update_stock(name, qty, price, user_name)
-                st.success(f"Successfully pushed '{name}' to the cloud!")
+            if name and (remain_qty <= input_qty):
+                update_stock(name, input_qty, remain_qty, price, user_name)
+                st.success(f"Updated {name} successfully!")
                 st.rerun()
+            elif remain_qty > input_qty:
+                st.error(
+                    "Error: Remaining stock cannot be more than the input stock!")
             else:
-                st.error("Please enter an Item Name.")
+                st.warning("Please enter a product name.")
 
-elif choice == "Business Insights":
-    st.subheader("Performance Analysis")
+elif choice == "Financial Insights":
+    st.subheader("💰 Sales & Revenue Report")
     if not df.empty:
-        total_val = df["Total Value"].sum()
-        st.metric("Total Business Value", f"${total_val:,.2f}")
+        total_revenue = df["Total Sales Value"].sum()
+        total_items_sold = df["Stock Sold Out"].sum()
 
-        # Graph - using the exact column names from the table
-        fig = px.bar(df, x="Item Name", y="Quantity in Stock",
-                     title="Current Stock Levels")
-        st.plotly_chart(fig)
+        # Dashboard Style Metrics
+        m1, m2 = st.columns(2)
+        m1.metric("Total Items Sold", f"{int(total_items_sold)} units")
+        m2.metric("Estimated Sales Revenue", f"${total_revenue:,.2f}")
+
+        st.write("### Product Performance")
+        st.table(df[["Item Name", "Stock Sold Out", "Total Sales Value"]])
     else:
-        st.error("No data to analyze.")
+        st.error("No sales data to display.")
