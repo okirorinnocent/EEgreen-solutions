@@ -16,7 +16,6 @@ st.set_page_config(page_title="EE Agro-Chemicals",
                    page_icon="🌱", layout="wide")
 
 # --- 2. STAY-AWAKE & STYLING ---
-# The 'refresh' tag tells the browser to reload every 20 mins to keep the app active.
 st.markdown(f"""
     <head>
         <meta http-equiv="refresh" content="1200">
@@ -52,17 +51,23 @@ st.markdown(f"""
 
 def fetch_data():
     try:
-        # HEARTBEAT: This line "pokes" Supabase to keep it from pausing.
-        # FIXED: "Item Name" now matches your exact database column spelling.
-        supabase.table("inventory").select("Item Name").limit(1).execute()
+        # Pings the new table structure
+        supabase.table("inventory").select("item_name").limit(1).execute()
 
-        # ACTUAL DATA FETCH
         response = supabase.table("inventory").select("*").execute()
         df = pd.DataFrame(response.data)
 
         if not df.empty:
-            df["Stock Sold Out"] = df["Total Stock Input"] - df["Stock Remaining"]
-            df["Total Sales Value"] = df["Stock Sold Out"] * df["Price per Unit"]
+            # Matches the NEW SQL column names
+            df["Stock Sold Out"] = df["total_stock_input"] - df["stock_remaining"]
+            df["Total Sales Value"] = df["Stock Sold Out"] * df["price_per_unit"]
+            # Rename for display purposes
+            df = df.rename(columns={
+                "item_name": "Item Name",
+                "total_stock_input": "Total Stock Input",
+                "stock_remaining": "Stock Remaining",
+                "price_per_unit": "Price per Unit"
+            })
         return df
     except Exception as e:
         st.error(f"Database Connection Issue: {e}")
@@ -70,9 +75,14 @@ def fetch_data():
 
 
 def update_db(name, input_qty, remain_qty, price, user):
-    data = {"Item Name": name, "Total Stock Input": input_qty,
-            "Stock Remaining": remain_qty, "Price per Unit": price, "Updated By": user}
-    supabase.table("inventory").upsert(data, on_conflict="Item Name").execute()
+    data = {
+        "item_name": name,
+        "total_stock_input": input_qty,
+        "stock_remaining": remain_qty,
+        "price_per_unit": price,
+        "updated_by": user
+    }
+    supabase.table("inventory").upsert(data, on_conflict="item_name").execute()
 
 
 # --- 4. NAVIGATION ---
@@ -82,16 +92,13 @@ menu = ["🛒 Record Sales", "📦 Inventory & Restock",
         "➕ Add New Product", "📈 Sales Report"]
 choice = st.sidebar.selectbox("Go to:", menu)
 
-# Load data once at the start
 df = fetch_data()
 
 # --- 5. PAGES ---
-
 if choice == "🛒 Record Sales":
     st.title("Daily Sales Counter")
     if not df.empty:
         search = st.text_input("🔍 Search product name...", "")
-        # Filter products based on search
         filtered_df = df[df["Item Name"].str.contains(search, case=False)]
 
         for index, row in filtered_df.iterrows():
@@ -122,7 +129,6 @@ if choice == "🛒 Record Sales":
 elif choice == "📦 Inventory & Restock":
     st.title("Stock Management")
     if not df.empty:
-        # Check for low stock items
         low = df[df["Stock Remaining"] < 5]
         if not low.empty:
             st.error(
@@ -155,7 +161,7 @@ elif choice == "📦 Inventory & Restock":
                     st.write("---")
                     if st.button("🗑️ Delete Product Forever", key=f"del_{index}"):
                         supabase.table("inventory").delete().eq(
-                            "Item Name", row['Item Name']).execute()
+                            "item_name", row['Item Name']).execute()
                         st.rerun()
 
 elif choice == "➕ Add New Product":
@@ -167,6 +173,7 @@ elif choice == "➕ Add New Product":
         if st.form_submit_button("Save Product"):
             update_db(name, q, q, p, user_name)
             st.success(f"{name} added to inventory!")
+            st.rerun()
 
 elif choice == "📈 Sales Report":
     st.title("Shop Financials")
