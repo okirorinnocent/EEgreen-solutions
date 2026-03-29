@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client
 import pandas as pd
-import time
 
 # --- 1. CONFIG & CONNECTIONS ---
 URL = "https://dcpvdapxzkaahyhpflul.supabase.co"
@@ -17,8 +16,7 @@ st.set_page_config(page_title="EE Agro-Chemicals",
                    page_icon="🌱", layout="wide")
 
 # --- 2. STAY-AWAKE & STYLING ---
-# This "meta refresh" tells the browser to reload the page every 1200 seconds (20 mins)
-# This keeps the connection to the server "warm".
+# The 'refresh' tag tells the browser to reload every 20 mins to keep the app active.
 st.markdown(f"""
     <head>
         <meta http-equiv="refresh" content="1200">
@@ -53,17 +51,21 @@ st.markdown(f"""
 
 
 def fetch_data():
-    # Database Heartbeat: This "pings" Supabase to keep it from sleeping
     try:
+        # HEARTBEAT: This line "pokes" Supabase to keep it from pausing.
+        # FIXED: "Item Name" now matches your exact database column spelling.
         supabase.table("inventory").select("Item Name").limit(1).execute()
+
+        # ACTUAL DATA FETCH
         response = supabase.table("inventory").select("*").execute()
         df = pd.DataFrame(response.data)
+
         if not df.empty:
             df["Stock Sold Out"] = df["Total Stock Input"] - df["Stock Remaining"]
             df["Total Sales Value"] = df["Stock Sold Out"] * df["Price per Unit"]
         return df
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.error(f"Database Connection Issue: {e}")
         return pd.DataFrame()
 
 
@@ -79,6 +81,8 @@ user_name = st.sidebar.text_input("Seller Name:", "Staff")
 menu = ["🛒 Record Sales", "📦 Inventory & Restock",
         "➕ Add New Product", "📈 Sales Report"]
 choice = st.sidebar.selectbox("Go to:", menu)
+
+# Load data once at the start
 df = fetch_data()
 
 # --- 5. PAGES ---
@@ -87,6 +91,7 @@ if choice == "🛒 Record Sales":
     st.title("Daily Sales Counter")
     if not df.empty:
         search = st.text_input("🔍 Search product name...", "")
+        # Filter products based on search
         filtered_df = df[df["Item Name"].str.contains(search, case=False)]
 
         for index, row in filtered_df.iterrows():
@@ -117,6 +122,7 @@ if choice == "🛒 Record Sales":
 elif choice == "📦 Inventory & Restock":
     st.title("Stock Management")
     if not df.empty:
+        # Check for low stock items
         low = df[df["Stock Remaining"] < 5]
         if not low.empty:
             st.error(
