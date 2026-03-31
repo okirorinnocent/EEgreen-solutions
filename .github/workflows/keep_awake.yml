@@ -7,6 +7,8 @@ on:
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Add permission to write to repo contents
     steps:
       - uses: actions/checkout@v4
       - name: Push Empty Commit
